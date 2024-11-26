@@ -15,11 +15,17 @@ game_state = {
     'game_finished': False
 }
 
-players_finished = {}
+def get_player_id():
+    return f"Player {'A' if len(game_state['players']) == 0 else 'B'}"
+
+def reset_game():
+    game_state['board_seed'] = None
+    game_state['game_started'] = False
+    game_state['game_finished'] = False
 
 @sio.on('connect')
 def handle_connect(sid, environ):
-    # If two players already connected, reject new connections
+    # Reject new connections if the game is full
     if len(game_state['players']) >= 2:
         sio.emit('connection_error', {'message': 'Game is full'}, room=sid)
         sio.disconnect(sid)
@@ -29,10 +35,8 @@ def handle_connect(sid, environ):
     if not game_state['board_seed']:
         game_state['board_seed'] = random.randint(1, 1000000)
 
-    # Assign player ID
-    player_id = f"Player {'A' if len(game_state['players']) == 0 else 'B'}"
-
-    # Store player info
+    # Assign player ID and store player info
+    player_id = get_player_id()
     game_state['players'][sid] = {
         'id': player_id,
         'finished_time': None,
@@ -46,28 +50,22 @@ def handle_connect(sid, environ):
         'total_players': len(game_state['players'])
     }, room=sid)
 
-    # If two players connected, start game
+    # Start game if two players are connected
     if len(game_state['players']) == 2:
         game_state['game_started'] = True
         for p_sid in game_state['players']:
-            sio.emit('game_start', {
-                'board_seed': game_state['board_seed']
-            }, room=p_sid)
+            sio.emit('game_start', {'board_seed': game_state['board_seed']}, room=p_sid)
 
 @sio.on('player_finished')
 def handle_player_finished(sid, data):
-    # If game already finished, ignore
     if game_state['game_finished']:
         return
 
     # Record player's finish time
-    game_state['players'][sid]['finished_time'] = data['game_time']
+    game_state['players'][sid]['finished_time'] = data.get('game_time')
 
     # Get players who have finished
-    finished_players = {
-        p_sid: player for p_sid, player in game_state['players'].items()
-        if player['finished_time'] is not None
-    }
+    finished_players = {p_sid: player for p_sid, player in game_state['players'].items() if player['finished_time']}
 
     # If all players finished
     if len(finished_players) == 2:
@@ -80,21 +78,14 @@ def handle_player_finished(sid, data):
                 key=lambda x: datetime.strptime(x[1]['finished_time'], '%H:%M:%S')
             )[1]['id']
         except ValueError:
-            # Fallback if time parsing fails
             winner = list(finished_players.values())[0]['id']
 
         # Prepare finish times for all players
-        times = {
-            player['id']: player['finished_time']
-            for player in game_state['players'].values()
-        }
+        times = {player['id']: player['finished_time'] for player in game_state['players'].values()}
 
         # Broadcast game over to all players
         for p_sid in game_state['players']:
-            sio.emit('game_over', {
-                'winner': winner,
-                'times': times
-            }, room=p_sid)
+            sio.emit('game_over', {'winner': winner, 'times': times}, room=p_sid)
 
 @sio.on('disconnect')
 def handle_disconnect(sid):
@@ -102,12 +93,14 @@ def handle_disconnect(sid):
     if sid in game_state['players']:
         del game_state['players'][sid]
 
-    # Reset game if less than 2 players
+    # Reset game if less than 2 players remain
     if len(game_state['players']) < 2:
-        game_state['board_seed'] = None
-        game_state['game_started'] = False
-        game_state['game_finished'] = False
- 
+        reset_game()
+
+        # Notify remaining player that the game has ended due to disconnection
+        for p_sid in game_state['players']:
+            sio.emit('game_over', {'winner': None, 'times': {}} , room=p_sid)
+
 @sio.on('error')
 def handle_error(sid, error):
     print(f"Socket error for {sid}: {error}")

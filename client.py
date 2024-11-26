@@ -1,19 +1,12 @@
 import tkinter as tk
 from tkinter import messagebox as tkMessageBox
-from collections import deque
 import random
 import platform
-from datetime import datetime, timedelta
+import os
 import socketio
 import threading
 import time
-import os
-import sys
-
-# Ensure Tkinter is working
-if not hasattr(tk, 'Tk'):
-    print("Tkinter not properly installed. Please reinstall Python with Tkinter support.")
-    sys.exit(1)
+from datetime import datetime
 
 SIZE_X = 10
 SIZE_Y = 10
@@ -44,7 +37,7 @@ class MinesweeperMultiplayer:
         # Setup socket event listeners
         self.setup_socket_listeners()
 
-        # Import images more robustly
+        # Import images
         self.images = {
             "plain": None,
             "clicked": None,
